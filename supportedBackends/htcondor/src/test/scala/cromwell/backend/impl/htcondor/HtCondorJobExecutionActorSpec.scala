@@ -3,32 +3,28 @@ package cromwell.backend.impl.htcondor
 import java.io.Writer
 import java.nio.file.{Path, Paths}
 
-import akka.actor.ActorSystem
-import akka.testkit.{ImplicitSender, TestActorRef, TestKit}
+import akka.testkit.{ImplicitSender, TestActorRef}
 import better.files._
 import com.typesafe.config.ConfigFactory
 import cromwell.backend.BackendJobExecutionActor.{FailedNonRetryableResponse, SucceededResponse}
 import cromwell.backend.io.JobPaths
-import cromwell.backend.{BackendConfigurationDescriptor, BackendJobDescriptor, BackendJobDescriptorKey, BackendWorkflowDescriptor}
+import cromwell.backend.{BackendConfigurationDescriptor, BackendJobDescriptor, BackendJobDescriptorKey, BackendSpec, BackendWorkflowDescriptor}
 import cromwell.core._
 import org.mockito.Matchers._
 import org.mockito.Mockito._
-import org.scalatest.concurrent.ScalaFutures._
 import org.scalatest.mock.MockitoSugar
-import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
-import spray.json.{JsObject, JsValue}
-import wdl4s._
+import org.scalatest.{Matchers, WordSpecLike}
 import wdl4s.values.WdlValue
 
 import scala.sys.process.{Process, ProcessLogger}
 
-
-class HtCondorJobExecutionActorSpec extends TestKit(ActorSystem("HtCondorJobExecutionActorSpec"))
+class HtCondorJobExecutionActorSpec extends TestKitSuite("HtCondorJobExecutionActorSpec")
   with WordSpecLike
   with Matchers
   with MockitoSugar
-  with BeforeAndAfterAll
   with ImplicitSender {
+
+  import BackendSpec._
 
   private val htCondorCommands: HtCondorCommands = new HtCondorCommands
   private val htCondorProcess: HtCondorProcess = mock[HtCondorProcess]
@@ -86,22 +82,6 @@ class HtCondorJobExecutionActorSpec extends TestKit(ActorSystem("HtCondorJobExec
 
   private def cleanUpJob(jobPaths: JobPaths): Unit = {
     jobPaths.workflowRoot.delete(true)
-  }
-
-  override def afterAll(): Unit = {
-    system.shutdown()
-  }
-
-  private def buildWorkflowDescriptor(wdl: WdlSource,
-                                      inputs: Map[String, WdlValue] = Map.empty,
-                                      options: WorkflowOptions = WorkflowOptions(JsObject(Map.empty[String, JsValue])),
-                                      runtime: String = "") = {
-    new BackendWorkflowDescriptor(
-      WorkflowId.randomId(),
-      NamespaceWithWorkflow.load(wdl.replaceAll("RUNTIME", runtime)),
-      inputs,
-      options
-    )
   }
 
   private def jobDescriptorFromSingleCallWorkflow(workflowDescriptor: BackendWorkflowDescriptor,

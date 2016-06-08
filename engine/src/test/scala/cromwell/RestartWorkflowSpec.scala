@@ -4,7 +4,7 @@ import akka.actor.ActorSystem
 import com.typesafe.config.ConfigFactory
 import cromwell.CromwellSpec.PostMVP
 import cromwell.CromwellTestkitSpec.TestWorkflowManagerSystem
-import cromwell.core.{ExecutionStatus, WorkflowId, WorkflowRunning, WorkflowSucceeded}
+import cromwell.core._
 import cromwell.engine._
 import cromwell.engine.db.DataAccess
 import cromwell.engine.workflow.WorkflowDescriptorBuilder
@@ -31,7 +31,7 @@ class RestartWorkflowSpec extends CromwellTestkitSpec with WorkflowDescriptorBui
   }
 
   "RestartWorkflowSpec" should {
-    "restart a call in Running state" taggedAs PostMVP in {
+    "restart a call in Running state" taggedAs PostMVP ignore {
       val id = WorkflowId.randomId()
       val descriptor = createMaterializedEngineWorkflowDescriptor(id, sources)
 //      val a = ExecutionDatabaseKey("w.a", Option(-1), 1)
