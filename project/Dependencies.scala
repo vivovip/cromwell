@@ -71,10 +71,12 @@ object Dependencies {
     "com.typesafe.akka" %% "akka-actor" % akkaV,
     "com.typesafe.akka" %% "akka-slf4j" % akkaV,
     "ch.qos.logback" % "logback-classic" % "1.1.3",
-    "org.apache.commons" % "commons-lang3" % "3.4"
+    "org.apache.commons" % "commons-lang3" % "3.4",
+    "com.typesafe.cinnamon" %% "cinnamon-takipi" % "1.2.2"
   ) ++ testDependencies ++ googleApiClientDependencies ++ sprayDependencies
 
   val engineDependencies = List(
+    "com.typesafe.cinnamon" %% "cinnamon-takipi" % "1.2.2",
     "com.typesafe.scala-logging" %% "scala-logging" % "3.1.0",
     "org.webjars" % "swagger-ui" % "2.1.1",
     "commons-codec" % "commons-codec" % "1.10",
