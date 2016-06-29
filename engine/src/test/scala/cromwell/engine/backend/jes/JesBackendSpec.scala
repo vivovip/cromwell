@@ -7,7 +7,8 @@ import java.util.UUID
 import akka.actor.ActorSystem
 import com.google.api.client.testing.http.{HttpTesting, MockHttpTransport, MockLowLevelHttpRequest, MockLowLevelHttpResponse}
 import cromwell.CromwellTestkitSpec
-import cromwell.backend.PreemptedException
+import cromwell.backend.impl.jes.{JesAttributes, JesBackendLifecycleActorFactory}
+import cromwell.backend.{BackendConfigurationDescriptor, PreemptedException}
 import cromwell.backend.impl.jes.io.{DiskType, JesWorkingDisk}
 import cromwell.core.{OldCallContext, OldWorkflowContext, WorkflowId, WorkflowOptions}
 import cromwell.engine._
@@ -37,17 +38,19 @@ class JesBackendSpec extends FlatSpec with Matchers with Mockito with BeforeAndA
   }
 
   val clientSecrets = RefreshTokenMode(name = "bar", clientId = "secret-id", clientSecret = "secret-secret")
-//  val jesBackend = new OldStyleJesBackend(CromwellTestkitSpec.JesBackendConfigEntry, actorSystem) {
-//    private val anyString = ""
-//    private val anyURL: URL = null
-//    override lazy val jesAttributes = new JesAttributes(
-//      project = anyString,
-//      executionBucket = anyString,
-//      endpointUrl = anyURL,
-//      maxPollingInterval = 600,
-//      genomicsAuth = ApplicationDefaultMode(name = "foo"),
-//      gcsFilesystemAuth = clientSecrets)
-//  }
+  val backendConfigDescriptor = new BackendConfigurationDescriptor(CromwellTestkitSpec.JesBackendConfig, CromwellTestkitSpec.DefaultConfig)
+  val jesBackend = new JesBackendLifecycleActorFactory(backendConfigDescriptor)
+
+  override val anyString = ""
+  val anyURL: URL = null
+
+  val jesAttributes = new JesAttributes(
+    project = anyString,
+    genomicsAuth = ApplicationDefaultMode(name = "foo"),
+    gcsFilesystemAuth = clientSecrets,
+    executionBucket = anyString,
+    endpointUrl = anyURL,
+    maxPollingInterval = 600)
 
   ignore should "handle Failure Status" in {
   //"executionResult" should "handle Failure Status" in {
@@ -167,24 +170,24 @@ class JesBackendSpec extends FlatSpec with Matchers with Mockito with BeforeAndA
   }
 
   //"workflow options existence" should "be verified when localizing with Refresh Token" in {
-  ignore should "be verified when localizing with Refresh Token" in {
-//    EncryptionSpec.assumeAes256Cbc()
-//
-//    val goodOptions = WorkflowOptions.fromMap(Map("refresh_token" -> "token")).get
-//
-//    try {
-//      jesBackend.assertWorkflowOptions(goodOptions)
-//    } catch {
-//      case e: IllegalArgumentException => fail("Correct options validation should not throw an exception.")
-//      case t: Throwable =>
-//        t.printStackTrace()
-//        fail(s"Unexpected exception: ${t.getMessage}")
-//    }
-//
-//    val missingToken = WorkflowOptions.fromMap(Map.empty).get
-//    the [IllegalArgumentException] thrownBy {
-//      jesBackend.assertWorkflowOptions(missingToken)
-//    } should have message s"Missing parameters in workflow options: refresh_token"
+  it should "be verified when localizing with Refresh Token" in {
+    EncryptionSpec.assumeAes256Cbc()
+
+    val goodOptions = WorkflowOptions.fromMap(Map("refresh_token" -> "token")).get
+
+    try {
+      jesAttributes.assertWorkflowOptions(goodOptions)
+    } catch {
+      case e: IllegalArgumentException => fail("Correct options validation should not throw an exception.")
+      case t: Throwable =>
+        t.printStackTrace()
+        fail(s"Unexpected exception: ${t.getMessage}")
+    }
+
+    val missingToken = WorkflowOptions.fromMap(Map.empty).get
+    the [IllegalArgumentException] thrownBy {
+      jesAttributes.assertWorkflowOptions(missingToken)
+    } should have message s"Missing parameters in workflow options: refresh_token"
   }
 
   ignore should "create a GcsAuthInformation instance" in {
