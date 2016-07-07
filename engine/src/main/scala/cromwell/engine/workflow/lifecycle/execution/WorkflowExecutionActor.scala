@@ -19,6 +19,8 @@ import cromwell.engine.backend.CromwellBackends
 import cromwell.engine.workflow.lifecycle.execution.JobPreparationActor.{BackendJobPreparationFailed, BackendJobPreparationSucceeded}
 import cromwell.engine.workflow.lifecycle.execution.WorkflowExecutionActor.WorkflowExecutionActorState
 import cromwell.engine.workflow.lifecycle.{EngineLifecycleActorAbortCommand, EngineLifecycleActorAbortedResponse}
+import cromwell.jobstore.{JobResult, JobResultFailure, JobResultSuccess, JobStoreKey}
+import cromwell.jobstore.JobStoreWriterService.RegisterJobCompleted
 import cromwell.services.MetadataServiceActor._
 import cromwell.services._
 import lenthall.exception.ThrowableAggregation
@@ -295,9 +297,11 @@ final case class WorkflowExecutionActor(workflowId: WorkflowId,
       goto(WorkflowExecutionFailedState) using stateData.mergeExecutionDiff(WorkflowExecutionDiff(Map(jobKey -> ExecutionStatus.Failed)))
     case Event(SucceededResponse(jobKey, returnCode, callOutputs), stateData) =>
       pushSuccessfulJobMetadata(jobKey, returnCode, callOutputs)
+      saveSuccessfulJobResults(jobKey, returnCode, callOutputs)
       handleJobSuccessful(jobKey, callOutputs, stateData)
     case Event(FailedNonRetryableResponse(jobKey, reason, returnCode), stateData) =>
       pushFailedJobMetadata(jobKey, returnCode, reason, retryableFailure = false)
+      saveUnsuccessfulJobResults(jobKey, returnCode, reason)
       context.parent ! WorkflowExecutionFailedResponse(stateData.executionStore, stateData.outputStore, List(reason))
       val mergedStateData = stateData.mergeExecutionDiff(WorkflowExecutionDiff(Map(jobKey -> ExecutionStatus.Failed)))
       goto(WorkflowExecutionFailedState) using mergedStateData.removeBackendJobExecutionActor(jobKey)
@@ -452,6 +456,18 @@ final case class WorkflowExecutionActor(workflowId: WorkflowId,
 
   private def pushRunningJobMetadata(jobKey: JobKey) = {
     serviceRegistryActor ! PutMetadataAction(MetadataEvent(metadataKey(jobKey, CallMetadataKeys.ExecutionStatus), MetadataValue(ExecutionStatus.Running)))
+  }
+
+  private def saveSuccessfulJobResults(jobKey: JobKey, returnCode: Option[Int], outputs: JobOutputs) = {
+    val jobStoreKey = JobStoreKey(workflowId, jobKey.scope.fullyQualifiedName, jobKey.index, jobKey.attempt)
+    val jobStoreResult = JobResultSuccess(returnCode, outputs)
+    serviceRegistryActor ! RegisterJobCompleted(jobStoreKey, jobStoreResult)
+  }
+
+  private def saveUnsuccessfulJobResults(jobKey: JobKey, returnCode: Option[Int], reason: Throwable) = {
+    val jobStoreKey = JobStoreKey(workflowId, jobKey.scope.fullyQualifiedName, jobKey.index, jobKey.attempt)
+    val jobStoreResult = JobResultFailure(returnCode, reason)
+    serviceRegistryActor ! RegisterJobCompleted(jobStoreKey, jobStoreResult)
   }
 
   private def pushSuccessfulJobMetadata(jobKey: JobKey, returnCode: Option[Int], outputs: JobOutputs) = {
