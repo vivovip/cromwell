@@ -1,3 +1,4 @@
+/*
 // Update this when a new patch of Reactive Platform is available
 val rpVersion = "15v09p04i01"
 
@@ -12,3 +13,4 @@ resolvers += "typesafe-rp-mvn" at rpUrl
 // The resolver name must start with typesafe-rp
 resolvers += Resolver.url("typesafe-rp-ivy",
   url(rpUrl))(Resolver.ivyStylePatterns)
+*/

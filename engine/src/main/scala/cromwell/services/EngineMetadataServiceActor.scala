@@ -36,9 +36,15 @@ object EngineMetadataServiceActor {
 // TODO: PBE: Will not be MetadataServiceActor until circular dependencies fixed.
 case class EngineMetadataServiceActor(serviceConfig: Config, globalConfig: Config) extends Actor with ActorLogging {
 
-  val dataAccess = DataAccess.globalDataAccess
+  import cromwell.MainSpecDebug._
+
+  val dataAccess = mainSpecDebug("EMSA returning pointer to global data access") {
+    DataAccess.globalDataAccess
+  }
   val summaryActor = context.system.actorOf(MetadataSummaryRefreshActor.props(MetadataSummaryTimestampMinimum), "metadata-summary-actor")
-  self ! RefreshSummary
+  mainSpecDebug("EMSA starting") {
+    self ! RefreshSummary
+  }
 
   // Status lookups are eventually consistent, so it's possible a db status lookup may fail for a recently submitted
   // workflow ID.  This cache records workflow IDs for which metadata has recently flowed through this actor.  If a db
@@ -100,33 +106,37 @@ case class EngineMetadataServiceActor(serviceConfig: Config, globalConfig: Confi
   }
 
   def receive = {
-    case action@PutMetadataAction(events) =>
-      workflowExistenceCache = workflowExistenceCache ++ (events map { _.key.workflowId -> CacheExpiryCount })
-      val sndr = sender()
-      dataAccess.addMetadataEvents(events) onComplete {
-        case Success(_) => sndr ! MetadataPutAcknowledgement(action)
-        case Failure(t) =>
-          val msg = MetadataPutFailed(action, t)
-          log.error(t, "Sending {} failure message {}", sndr, msg)
-          sndr ! msg
-      }
-    case GetSingleWorkflowMetadataAction(workflowId, includeKeysOption, excludeKeysOption) =>
-      queryAndRespond(MetadataQuery(workflowId, None, None, includeKeysOption, excludeKeysOption))
-    case GetMetadataQueryAction(query@MetadataQuery(_, _, _, _, _)) => queryAndRespond(query)
-    case GetStatus(workflowId) => queryStatusAndRespond(workflowId)
-    case GetLogs(workflowId) => queryLogsAndRespond(workflowId)
-    case WorkflowQuery(uri, parameters) => queryWorkflowsAndRespond(uri, parameters)
-    case WorkflowOutputs(id) => queryWorkflowOutputsAndRespond(id)
-    case RefreshSummary => summaryActor ! SummarizeMetadata
-    case MetadataSummarySuccess =>
-      // Remove expired cache entries, decrement cache counts for remaining entries.
-      workflowExistenceCache = workflowExistenceCache collect { case (k, v) if v > 1 => k -> (v - 1) }
-      scheduleSummary
-    case MetadataSummaryFailure(t) =>
-      log.error(t, "Error summarizing metadata")
-      scheduleSummary
-    case HandleNotFound(id, sndr) =>
-      val message = if (workflowExistenceCache.contains(id)) StatusLookupResponse(id, WorkflowSubmitted) else StatusLookupNotFound(id)
-      sndr ! message
+    mainSpecPartial("EMSA receive", self, sender()) {
+      case action@PutMetadataAction(events) =>
+        workflowExistenceCache = workflowExistenceCache ++ (events map {
+          _.key.workflowId -> CacheExpiryCount
+        })
+        val sndr = sender()
+        dataAccess.addMetadataEvents(events) onComplete {
+          case Success(_) => sndr ! MetadataPutAcknowledgement(action)
+          case Failure(t) =>
+            val msg = MetadataPutFailed(action, t)
+            log.error(t, "Sending {} failure message {}", sndr, msg)
+            sndr ! msg
+        }
+      case GetSingleWorkflowMetadataAction(workflowId, includeKeysOption, excludeKeysOption) =>
+        queryAndRespond(MetadataQuery(workflowId, None, None, includeKeysOption, excludeKeysOption))
+      case GetMetadataQueryAction(query@MetadataQuery(_, _, _, _, _)) => queryAndRespond(query)
+      case GetStatus(workflowId) => queryStatusAndRespond(workflowId)
+      case GetLogs(workflowId) => queryLogsAndRespond(workflowId)
+      case WorkflowQuery(uri, parameters) => queryWorkflowsAndRespond(uri, parameters)
+      case WorkflowOutputs(id) => queryWorkflowOutputsAndRespond(id)
+      case RefreshSummary => summaryActor ! SummarizeMetadata
+      case MetadataSummarySuccess =>
+        // Remove expired cache entries, decrement cache counts for remaining entries.
+        workflowExistenceCache = workflowExistenceCache collect { case (k, v) if v > 1 => k -> (v - 1) }
+        scheduleSummary
+      case MetadataSummaryFailure(t) =>
+        log.error(t, "Error summarizing metadata")
+        scheduleSummary
+      case HandleNotFound(id, sndr) =>
+        val message = if (workflowExistenceCache.contains(id)) StatusLookupResponse(id, WorkflowSubmitted) else StatusLookupNotFound(id)
+        sndr ! message
+    }
   }
 }

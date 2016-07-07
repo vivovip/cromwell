@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter
 
 import akka.util.Timeout
 import better.files._
+import com.typesafe.config.ConfigFactory
 import cromwell.core.PathFactory._
 import cromwell.util.SampleWdl
 import cromwell.util.SampleWdl.{EmptyWorkflow, GoodbyeWorld, ThreeStep}
@@ -24,6 +25,28 @@ class MainSpec extends FlatSpec with Matchers with BeforeAndAfterAll with TimeLi
   behavior of "Main"
 
   override val timeLimit: Span = CromwellTestkitSpec.TimeoutDuration
+
+  it should "start logging" in {
+    import cromwell.MainSpecDebug._
+    import lenthall.config.ScalaConfig._
+    import scala.collection.JavaConverters._
+    mainSpecOn = true
+    mainSpecDebug("in MainSpec") {
+      val runtime = Runtime.getRuntime
+      val takipiActors =
+        ConfigFactory.load.getConfigOption("cinnamon.takipi.actors").map(_.entrySet.asScala.map(_.getKey))
+      println(
+        s"""
+           |
+           |# Processors = ${runtime.availableProcessors}
+           |Memory Max   = ${runtime.maxMemory / 1024D / 1024D}
+           |Memory Total = ${runtime.totalMemory / 1024D / 1024D}
+           |Memory Free  = ${runtime.freeMemory / 1024D / 1024D}
+           |Takipi Actors = $takipiActors
+           |
+           |""".stripMargin)
+    }
+  }
 
   it should "print usage" in {
     assert(traceMain(_.usageAndExit()).out.contains(UsageSnippet))
@@ -128,6 +151,13 @@ class MainSpec extends FlatSpec with Matchers with BeforeAndAfterAll with TimeLi
       result.returnCode should be(-1)
     }
   }
+
+  it should "stop logging" in {
+    import cromwell.MainSpecDebug._
+    mainSpecDebug("done MainSpec (going to keep logging though)")()
+    //mainSpecOn = false
+  }
+
 }
 
 object MainSpec {

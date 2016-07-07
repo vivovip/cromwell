@@ -25,32 +25,50 @@ object ServiceRegistryActor {
   }
 
   private def serviceProps(serviceName: String, globalConfig: Config, serviceStanza: Config): Props = {
-    val serviceConfigStanza = serviceStanza.getConfigOr("config", ConfigFactory.parseString(""))
-    val className = serviceStanza.getStringOr(
-      "class",
-      throw new Exception(s"Invalid configuration for service $serviceName: missing 'class' definition")
-    )
-    Props.create(Class.forName(className), serviceConfigStanza, globalConfig)
+    import cromwell.MainSpecDebug._
+    mainSpecPrint(s"SRA created props for $serviceName") {
+      val serviceConfigStanza = serviceStanza.getConfigOr("config", ConfigFactory.parseString(""))
+      val className = serviceStanza.getStringOr(
+        "class",
+        throw new Exception(s"Invalid configuration for service $serviceName: missing 'class' definition")
+      )
+      println(s"SRA Returning serviceProps. Will later create $serviceName -> $className: '$serviceConfigStanza'")
+      Props.create(Class.forName(className), serviceConfigStanza, globalConfig)
+    }
   }
 }
 
 case class ServiceRegistryActor(globalConfig: Config) extends Actor with ActorLogging {
   import ServiceRegistryActor._
+  import cromwell.MainSpecDebug._
 
-  val services: Map[String, ActorRef] = serviceNameToPropsMap(globalConfig) map {
-    case (name, props) => name -> context.actorOf(props, name)
+  val services: Map[String, ActorRef] = {
+    mainSpecPrint("SRA creating services") {
+      serviceNameToPropsMap(globalConfig) map {
+        case (name, props) =>
+          val actor = context.actorOf(props, name)
+          mainSpecPrint(s"SRA actor $name -> $actor".stripMargin)()
+          name -> actor
+      }
+    }
   }
 
   def receive = {
-    case msg: ServiceRegistryMessage =>
-      services.get(msg.serviceName) match {
-        case Some(ref) => ref.tell(msg, sender)
-        case None =>
-          log.error("Received ServiceRegistryMessage requesting service '{}' for which no service is configured.  Message: {}", msg.serviceName, msg)
-          sender ! ServiceRegistryFailure(msg.serviceName)
+    case peekMsg =>
+      val sentBy = sender()
+      mainSpecDebug(s"SRA $sentBy $peekMsg") {
+        peekMsg match {
+          case msg: ServiceRegistryMessage =>
+            services.get(msg.serviceName) match {
+              case Some(ref) => ref.tell(msg, sender)
+              case None =>
+                log.error("Received ServiceRegistryMessage requesting service '{}' for which no service is configured.  Message: {}", msg.serviceName, msg)
+                sender ! ServiceRegistryFailure(msg.serviceName)
+            }
+          case fool =>
+            log.error("Received message which is not a ServiceRegistryMessage: {}", fool)
+            sender ! ServiceRegistryFailure("Message is not a ServiceRegistryMessage: " + fool)
+        }
       }
-    case fool =>
-      log.error("Received message which is not a ServiceRegistryMessage: {}", fool)
-      sender ! ServiceRegistryFailure("Message is not a ServiceRegistryMessage: " + fool)
   }
 }

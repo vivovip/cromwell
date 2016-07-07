@@ -198,14 +198,19 @@ class MetadataBuilderActor(serviceRegistryActor: ActorRef) extends LoggingFSM[Me
   with DefaultJsonProtocol with WorkflowQueryPagination {
 
   import WorkflowJsonSupport._
+  import cromwell.MainSpecDebug._
 
-  startWith(Idle, ())
+  mainSpecDebug(s"MBA starting") {
+    startWith(Idle, ())
+  }
   val tag = self.path.name
 
   when(Idle) {
-    case Event(action: MetadataServiceAction, _) =>
-      serviceRegistryActor ! action
-      goto(WaitingForMetadataService)
+    mainSpecPartial("MBA Idle", self, sender()) {
+      case Event(action: MetadataServiceAction, _) =>
+        serviceRegistryActor ! action
+        goto(WaitingForMetadataService)
+    }
   }
 
   private def allDone = {
@@ -214,36 +219,38 @@ class MetadataBuilderActor(serviceRegistryActor: ActorRef) extends LoggingFSM[Me
   }
 
   when(WaitingForMetadataService) {
-    case Event(MetadataLookupResponse(query, metadata), _) =>
-      context.parent ! RequestComplete(StatusCodes.OK, processMetadataResponse(query, metadata))
-      allDone
-    case Event(StatusLookupResponse(w, status), _) =>
-      context.parent ! RequestComplete(StatusCodes.OK, processStatusResponse(w, status))
-      allDone
-    case Event(StatusLookupNotFound(w), _) =>
-      context.parent ! APIResponse.workflowNotFound(w)
-      allDone
-    case Event(failure: ServiceRegistryFailure, _) =>
-      val response = APIResponse.fail(new RuntimeException("Can't find metadata service"))
-      context.parent ! RequestComplete(StatusCodes.InternalServerError, response)
-      allDone
-    case Event(WorkflowQuerySuccess(uri, response, metadata), _) =>
-      context.parent ! RequestCompleteWithHeaders(response, generateLinkHeaders(uri, metadata):_*)
-      allDone
-    case Event(WorkflowOutputsResponse(w, metadata), _) =>
-      context.parent ! RequestComplete(StatusCodes.OK, workflowMetadataResponse(w, metadata, includeCallsIfEmpty = false))
-      allDone
-    case Event(LogsResponse(w, l), _) =>
-      context.parent ! RequestComplete(StatusCodes.OK, workflowMetadataResponse(w, l, includeCallsIfEmpty = false))
-      allDone
-    case Event(failure: MetadataServiceFailure, _) =>
-      context.parent ! RequestComplete(StatusCodes.InternalServerError, APIResponse.error(failure.reason))
-      allDone
-    case Event(unexpectedMessage, stateData) =>
-      val response = APIResponse.fail(new RuntimeException(s"MetadataBuilderActor $tag(WaitingForMetadataService, $stateData) got an unexpected message: $unexpectedMessage"))
-      context.parent ! RequestComplete(StatusCodes.InternalServerError, response)
-      context stop self
-      stay()
+    mainSpecPartial("MBA WaitingForMetadataService", self, sender()) {
+      case Event(MetadataLookupResponse(query, metadata), _) =>
+        context.parent ! RequestComplete(StatusCodes.OK, processMetadataResponse(query, metadata))
+        allDone
+      case Event(StatusLookupResponse(w, status), _) =>
+        context.parent ! RequestComplete(StatusCodes.OK, processStatusResponse(w, status))
+        allDone
+      case Event(StatusLookupNotFound(w), _) =>
+        context.parent ! APIResponse.workflowNotFound(w)
+        allDone
+      case Event(failure: ServiceRegistryFailure, _) =>
+        val response = APIResponse.fail(new RuntimeException("Can't find metadata service"))
+        context.parent ! RequestComplete(StatusCodes.InternalServerError, response)
+        allDone
+      case Event(WorkflowQuerySuccess(uri, response, metadata), _) =>
+        context.parent ! RequestCompleteWithHeaders(response, generateLinkHeaders(uri, metadata): _*)
+        allDone
+      case Event(WorkflowOutputsResponse(w, metadata), _) =>
+        context.parent ! RequestComplete(StatusCodes.OK, workflowMetadataResponse(w, metadata, includeCallsIfEmpty = false))
+        allDone
+      case Event(LogsResponse(w, l), _) =>
+        context.parent ! RequestComplete(StatusCodes.OK, workflowMetadataResponse(w, l, includeCallsIfEmpty = false))
+        allDone
+      case Event(failure: MetadataServiceFailure, _) =>
+        context.parent ! RequestComplete(StatusCodes.InternalServerError, APIResponse.error(failure.reason))
+        allDone
+      case Event(unexpectedMessage, stateData) =>
+        val response = APIResponse.fail(new RuntimeException(s"MetadataBuilderActor $tag(WaitingForMetadataService, $stateData) got an unexpected message: $unexpectedMessage"))
+        context.parent ! RequestComplete(StatusCodes.InternalServerError, response)
+        context stop self
+        stay()
+    }
   }
 
   def processMetadataResponse(query: MetadataQuery, eventsList: Seq[MetadataEvent]): JsObject = {

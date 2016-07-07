@@ -105,89 +105,105 @@ class WorkflowManagerActor(config: Config)
     }
   }
 
-  startWith(Running, WorkflowManagerData(workflows = Map.empty))
+  import cromwell.MainSpecDebug._
+
+  mainSpecDebug(s"WMA starting") {
+    startWith(Running, WorkflowManagerData(workflows = Map.empty))
+  }
 
   when (Running) {
-    /*
-     Commands from clients
-     */
-    case Event(SubmitWorkflowCommand(source), stateData) =>
-      val updatedEntry = submitWorkflow(source, replyTo = Option(sender), id = None)
-      stay() using stateData.withAddition(updatedEntry)
-    case Event(SubscribeToWorkflowCommand(id), data) =>
-      data.workflows.get(id) foreach {_ ! SubscribeTransitionCallBack(sender())}
-      stay()
-    case Event(WorkflowManagerActor.AbortWorkflowCommand(id), stateData) =>
-      val workflowActor = stateData.workflows.get(id)
-      workflowActor match {
-        case Some(actor) =>
-          actor ! WorkflowActor.AbortWorkflowCommand
-          stay()
-        case None =>
-          sender ! WorkflowManagerAbortFailure(id, new Exception(s"Couldn't abort $id because no workflow with that ID is in progress"))
-          stay()
-      }
-    case Event(AbortAllWorkflowsCommand, data) if data.workflows.isEmpty =>
-      goto(Done)
-    case Event(AbortAllWorkflowsCommand, data) =>
-      log.info(s"$tag Aborting all workflows")
-      data.workflows.values.foreach { _ ! WorkflowActor.AbortWorkflowCommand }
-      goto(Aborting)
-    /*
+    mainSpecPartial("WMA Running", self, sender()) {
+      /*
+         Commands from clients
+         */
+      case Event(SubmitWorkflowCommand(source), stateData) =>
+        val updatedEntry = submitWorkflow(source, replyTo = Option(sender), id = None)
+        stay() using stateData.withAddition(updatedEntry)
+      case Event(SubscribeToWorkflowCommand(id), data) =>
+        data.workflows.get(id) foreach {
+          _ ! SubscribeTransitionCallBack(sender())
+        }
+        stay()
+      case Event(WorkflowManagerActor.AbortWorkflowCommand(id), stateData) =>
+        val workflowActor = stateData.workflows.get(id)
+        workflowActor match {
+          case Some(actor) =>
+            actor ! WorkflowActor.AbortWorkflowCommand
+            stay()
+          case None =>
+            sender ! WorkflowManagerAbortFailure(id, new Exception(s"Couldn't abort $id because no workflow with that ID is in progress"))
+            stay()
+        }
+      case Event(AbortAllWorkflowsCommand, data) if data.workflows.isEmpty =>
+        goto(Done)
+      case Event(AbortAllWorkflowsCommand, data) =>
+        log.info(s"$tag Aborting all workflows")
+        data.workflows.values.foreach {
+          _ ! WorkflowActor.AbortWorkflowCommand
+        }
+        goto(Aborting)
+      /*
      Responses from services
      */
-    case Event(WorkflowSucceededResponse(workflowId), data) =>
-      log.info(s"$tag Workflow $workflowId succeeded!")
-      stay()
-    case Event(WorkflowFailedResponse(workflowId, inState, reasons), data) =>
-      log.error(s"$tag Workflow $workflowId failed (during $inState): ${reasons.mkString("\n")}")
-      stay()
-    /*
+      case Event(WorkflowSucceededResponse(workflowId), data) =>
+        log.info(s"$tag Workflow $workflowId succeeded!")
+        stay()
+      case Event(WorkflowFailedResponse(workflowId, inState, reasons), data) =>
+        log.error(s"$tag Workflow $workflowId failed (during $inState): ${reasons.mkString("\n")}")
+        stay()
+      /*
      Watched transitions
      */
-    case Event(Transition(workflowActor, _, toState: WorkflowActorTerminalState), data) =>
-      log.info(s"$tag ${workflowActor.path.name} is in a terminal state: $toState")
-      stay using data.without(workflowActor)
+      case Event(Transition(workflowActor, _, toState: WorkflowActorTerminalState), data) =>
+        log.info(s"$tag ${workflowActor.path.name} is in a terminal state: $toState")
+        stay using data.without(workflowActor)
+    }
   }
 
   when (Aborting) {
-    case Event(Transition(workflowActor, _, toState: WorkflowActorState), data) if toState.terminal =>
-      // Remove this terminal actor from the workflowStore and log a progress message.
-      val updatedData = data.without(workflowActor)
-      // If there are no more workflows to abort we're done, otherwise just stay in the current state.
-      val resultAction = if (updatedData.workflows.isEmpty) {
-        logger.info(s"$tag All workflows are aborted")
-        goto(Done)
-      } else {
-        logger.info(s"$tag Waiting for all workflows to abort (${updatedData.workflows.size} remaining).")
-        stay()
-      }
-      // Whatever the result action, use the updated data:
-      resultAction using updatedData
-    case Event(_, _) => stay()
+    mainSpecPartial("WMA Aborting", self, sender()) {
+      case Event(Transition(workflowActor, _, toState: WorkflowActorState), data) if toState.terminal =>
+        // Remove this terminal actor from the workflowStore and log a progress message.
+        val updatedData = data.without(workflowActor)
+        // If there are no more workflows to abort we're done, otherwise just stay in the current state.
+        val resultAction = if (updatedData.workflows.isEmpty) {
+          logger.info(s"$tag All workflows are aborted")
+          goto(Done)
+        } else {
+          logger.info(s"$tag Waiting for all workflows to abort (${updatedData.workflows.size} remaining).")
+          stay()
+        }
+        // Whatever the result action, use the updated data:
+        resultAction using updatedData
+      case Event(_, _) => stay()
+    }
   }
 
   when (Done) { FSM.NullFunction }
 
   whenUnhandled {
-    case Event(MetadataPutFailed(action, error), _) =>
-      log.warning(s"$tag Put failed for Metadata action $action : ${error.getMessage}")
-      stay()
-    case Event(MetadataPutAcknowledgement(_), _) => stay()
-    // Uninteresting transition and current state notifications.
-    case Event((Transition(_, _, _) | CurrentState(_, _)), _) => stay()
-    // Anything else certainly IS interesting:
-    case Event(unhandled, data) =>
-      log.warning(s"$tag Unhandled message: $unhandled")
-      stay()
+    mainSpecPartial("WMA whenUnhandled", self, sender()) {
+      case Event(MetadataPutFailed(action, error), _) =>
+        log.warning(s"$tag Put failed for Metadata action $action : ${error.getMessage}")
+        stay()
+      case Event(MetadataPutAcknowledgement(_), _) => stay()
+      // Uninteresting transition and current state notifications.
+      case Event((Transition(_, _, _) | CurrentState(_, _)), _) => stay()
+      // Anything else certainly IS interesting:
+      case Event(unhandled, data) =>
+        log.warning(s"$tag Unhandled message: $unhandled")
+        stay()
+    }
   }
 
   onTransition {
-    case _ -> Done =>
-      logger.info(s"$tag All workflows finished. Shutting down.")
-      donePromise.trySuccess(())
-    case fromState -> toState =>
-      logger.info(s"$tag transitioning from $fromState to $toState")
+    mainSpecPartial("WMA onTransition", self, sender()) {
+      case _ -> Done =>
+        logger.info(s"$tag All workflows finished. Shutting down.")
+        donePromise.trySuccess(())
+      case fromState -> toState =>
+        logger.info(s"$tag transitioning from $fromState to $toState")
+    }
   }
 
   /** Submit the workflow and return an updated copy of the state data reflecting the addition of a

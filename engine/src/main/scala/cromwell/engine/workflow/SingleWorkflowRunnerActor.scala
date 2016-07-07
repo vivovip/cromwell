@@ -73,11 +73,14 @@ case class SingleWorkflowRunnerActor(source: WorkflowSourceFiles,
   extends LoggingFSM[RunnerState, RunnerData] with CromwellActor with ServiceRegistryClient {
 
   import SingleWorkflowRunnerActor._
+  import cromwell.MainSpecDebug._
 
   private val backoff = SimpleExponentialBackoff(1 second, 1 minute, 1.2)
   private implicit val system = context.system
 
-  startWith(NotStarted, RunnerData())
+  mainSpecDebug(s"SWRA starting") {
+    startWith(NotStarted, RunnerData())
+  }
 
   private def requestMetadata: State = {
     val metadataBuilder = context.actorOf(MetadataBuilderActor.props(serviceRegistryActor), s"MetadataRequest-Workflow-${stateData.id.get}")
@@ -104,54 +107,72 @@ case class SingleWorkflowRunnerActor(source: WorkflowSourceFiles,
 
   when (NotStarted) {
     case Event(RunWorkflow, data) =>
-      log.info(s"$Tag: Launching workflow")
-      val submitMessage = SubmitWorkflowCommand(source)
-      workflowManager ! submitMessage
-      goto (RunningWorkflow) using data.copy(replyTo = Option(sender()))
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} RunWorkflow") {
+        log.info(s"$Tag: Launching workflow")
+        val submitMessage = SubmitWorkflowCommand(source)
+        workflowManager ! submitMessage
+        goto(RunningWorkflow) using data.copy(replyTo = Option(sender()))
+      }
   }
 
   when (RunningWorkflow) {
     case Event(WorkflowManagerSubmitSuccess(id), data) =>
-      log.info(s"$Tag: Workflow submitted UUID($id)")
-      schedulePollRequest()
-      stay() using data.copy(id = Option(id))
-    case Event(IssuePollRequest, _) =>
-      requestStatus()
-      stay()
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} WorkflowManagerSubmitSuccess $id") {
+        log.info(s"$Tag: Workflow submitted UUID($id)")
+        schedulePollRequest()
+        stay() using data.copy(id = Option(id))
+      }
+    case Event(IssuePollRequest, data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} IssuePollRequest") {
+        requestStatus()
+        stay()
+      }
     case Event(RequestComplete((StatusCodes.OK, jsObject: JsObject)), data) if !jsObject.state.isTerminal =>
-      schedulePollRequest()
-      stay()
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} RequestComplete not terminal $data") {
+        schedulePollRequest()
+        stay()
+      }
     case Event(RequestComplete((StatusCodes.OK, jsObject: JsObject)), data) if jsObject.state == WorkflowSucceeded =>
-      val metadataBuilder = context.actorOf(MetadataBuilderActor.props(serviceRegistryActor))
-      metadataBuilder ! WorkflowOutputs(data.id.get)
-      goto(RequestingOutputs) using data.copy(terminalState = Option(WorkflowSucceeded))
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} RequestComplete WorkflowSucceeded $data") {
+        val metadataBuilder = context.actorOf(MetadataBuilderActor.props(serviceRegistryActor))
+        metadataBuilder ! WorkflowOutputs(data.id.get)
+        goto(RequestingOutputs) using data.copy(terminalState = Option(WorkflowSucceeded))
+      }
     case Event(RequestComplete((StatusCodes.OK, jsObject: JsObject)), data) if jsObject.state == WorkflowFailed =>
-      val updatedData = data.copy(terminalState = Option(WorkflowFailed)).addFailure(s"Workflow ${data.id.get} transitioned to state Failed")
-      // If there's an output path specified then request metadata, otherwise issue a reply to the original sender.
-      val nextState = if (metadataOutputPath.isDefined) requestMetadata else issueReply
-      nextState using updatedData
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} RequestComplete WorkflowFailed $data") {
+        val updatedData = data.copy(terminalState = Option(WorkflowFailed)).addFailure(s"Workflow ${data.id.get} transitioned to state Failed")
+        // If there's an output path specified then request metadata, otherwise issue a reply to the original sender.
+        val nextState = if (metadataOutputPath.isDefined) requestMetadata else issueReply
+        nextState using updatedData
+      }
   }
 
   when (RequestingOutputs) {
-    case Event(RequestComplete((StatusCodes.OK, outputs: JsObject)), _) =>
-      outputOutputs(outputs)
-      if (metadataOutputPath.isDefined) requestMetadata else issueReply
+    case Event(RequestComplete((StatusCodes.OK, outputs: JsObject)), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} requesting outputs") {
+        outputOutputs(outputs)
+        if (metadataOutputPath.isDefined) requestMetadata else issueReply
+      }
   }
 
   when (RequestingMetadata) {
-    case Event(RequestComplete((StatusCodes.OK, metadata: JsObject)), _) =>
-      outputMetadata(metadata)
-      issueReply
+    case Event(RequestComplete((StatusCodes.OK, metadata: JsObject)), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} requesting metadata") {
+        outputMetadata(metadata)
+        issueReply
+      }
   }
 
   when (Done) {
     case Event(IssueReply, data) =>
-      data.terminalState foreach { state => log.info(s"$Tag workflow finished with status '$state'.") }
-      data.failures foreach { e => log.error(e, e.getMessage) }
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} done!") {
+        data.terminalState foreach { state => log.info(s"$Tag workflow finished with status '$state'.") }
+        data.failures foreach { e => log.error(e, e.getMessage) }
 
-      val message = data.terminalState collect { case WorkflowSucceeded => () } getOrElse Status.Failure(data.failures.head)
-      data.replyTo foreach  { _ ! message }
-      stay()
+        val message = data.terminalState collect { case WorkflowSucceeded => () } getOrElse Status.Failure(data.failures.head)
+        data.replyTo foreach { _ ! message }
+        stay()
+      }
   }
 
   private def failAndFinish(e: Throwable): State = {
@@ -161,16 +182,37 @@ case class SingleWorkflowRunnerActor(source: WorkflowSourceFiles,
 
   whenUnhandled {
     // Handle failures for all WorkflowManagerFailureResponses generically.
-    case Event(r: WorkflowManagerFailureResponse, data) => failAndFinish(r.failure)
-    case Event(Failure(e), data) => failAndFinish(e)
-    case Event(Status.Failure(e), data) => failAndFinish(e)
-    case Event(RequestComplete((_, snap)), _) => failAndFinish(new RuntimeException(s"Unexpected API completion message: $snap"))
-    case Event((CurrentState(_, _) | Transition(_, _, _)), _) =>
-      // ignore uninteresting current state and transition messages
-      stay()
-    case Event(m, _) =>
-      log.warning(s"$Tag: received unexpected message: $m")
-      stay()
+    case Event(r: WorkflowManagerFailureResponse, data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} WorkflowManagerFailureResponse $r") {
+        failAndFinish(r.failure)
+      }
+    case Event(Failure(e), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} Failure $e") {
+        failAndFinish(e)
+      }
+    case Event(Status.Failure(e), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} Status.Failure $e") {
+        failAndFinish(e)
+      }
+    case Event(RequestComplete((_, snap)), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} RequestComplete $snap") {
+        failAndFinish(new RuntimeException(s"Unexpected API completion message: $snap"))
+      }
+    case Event(CurrentState(_, state), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} CurrentState\nstate = $state") {
+        // ignore uninteresting current state and transition messages
+        stay()
+      }
+    case Event(Transition(_, from, to), data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} Transition\nfrom = $from\nto  = $to") {
+        // ignore uninteresting current state and transition messages
+        stay()
+      }
+    case Event(m, data) =>
+      mainSpecDebug(s"SWRA ${data.id.getOrElse("<none>")} Unhandled: $m") {
+        log.warning(s"$Tag: received unexpected message: $m")
+        stay()
+      }
   }
 
   /**

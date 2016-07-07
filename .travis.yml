@@ -8,6 +8,5 @@ jdk:
 env:
   # Setting this variable twice will cause the 'script' section to run twice with the respective env var invoked
   - BUILD_TYPE=test
-  - BUILD_TYPE=centaur
 script:
-  - travis_wait 50 src/bin/travis/travis.sh
+  - src/bin/travis/travisRepeat.sh

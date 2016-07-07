@@ -7,3 +7,4 @@ cromwell-test-executions
 cromwell-workflow-logs
 cromwell-test-workflow-logs
 native
+project/typesafe.properties
