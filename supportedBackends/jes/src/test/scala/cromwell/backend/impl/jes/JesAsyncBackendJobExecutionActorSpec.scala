@@ -87,7 +87,7 @@ class JesAsyncBackendJobExecutionActorSpec extends TestKitSuite("JesAsyncBackend
                                      promise: Promise[BackendJobExecutionResponse],
                                      jesConfiguration: JesConfiguration,
                                      functions: JesExpressionFunctions = TestableJesExpressionFunctions)
-    extends JesAsyncBackendJobExecutionActor(jobDescriptor, promise, jesConfiguration, buildInitializationData) {
+    extends JesAsyncBackendJobExecutionActor(jobDescriptor, promise, jesConfiguration, buildInitializationData, emptyActor) {
     // TODO: PBE: services are currently implemented in the engine, so we can't spin them up in specs
     override val serviceRegistryActor = system.actorOf(Props.empty)
 

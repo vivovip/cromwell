@@ -1,6 +1,6 @@
 package cromwell.backend.impl.jes
 
-import akka.actor.Props
+import akka.actor.{ActorRef, Props}
 import com.google.api.services.genomics.Genomics
 import cromwell.backend.impl.jes.JesInitializationActor._
 import cromwell.backend.impl.jes.authentication.{GcsLocalizing, JesAuthInformation}
@@ -22,8 +22,11 @@ object JesInitializationActor {
   val SupportedKeys = Set(CpuKey, MemoryKey, DockerKey, FailOnStderrKey, ContinueOnReturnCodeKey, JesRuntimeAttributes.ZonesKey,
     JesRuntimeAttributes.PreemptibleKey, JesRuntimeAttributes.BootDiskSizeKey, JesRuntimeAttributes.DisksKey)
 
-  def props(workflowDescriptor: BackendWorkflowDescriptor, calls: Seq[Call], jesConfiguration: JesConfiguration): Props =
-    Props(new JesInitializationActor(workflowDescriptor, calls, jesConfiguration)).withDispatcher("akka.dispatchers.slow-actor-dispatcher")
+  def props(workflowDescriptor: BackendWorkflowDescriptor,
+            calls: Seq[Call],
+            jesConfiguration: JesConfiguration,
+            serviceRegistryActory: ActorRef): Props =
+    Props(new JesInitializationActor(workflowDescriptor, calls, jesConfiguration, serviceRegistryActory)).withDispatcher("akka.dispatchers.slow-actor-dispatcher")
 
   implicit class GoogleAuthWorkflowOptions(val workflowOptions: WorkflowOptions) extends AnyVal {
     def toGoogleAuthOptions: GoogleAuthMode.GoogleAuthOptions = new GoogleAuthOptions {
@@ -34,7 +37,8 @@ object JesInitializationActor {
 
 class JesInitializationActor(override val workflowDescriptor: BackendWorkflowDescriptor,
                              override val calls: Seq[Call],
-                             private[jes] val jesConfiguration: JesConfiguration)
+                             private[jes] val jesConfiguration: JesConfiguration,
+                             override val serviceRegistryActor: ActorRef)
   extends BackendWorkflowInitializationActor {
 
   override protected def runtimeAttributeValidators: Map[String, (Option[WdlExpression]) => Boolean] = Map(
