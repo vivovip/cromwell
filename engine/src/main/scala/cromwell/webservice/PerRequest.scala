@@ -1,5 +1,7 @@
 package cromwell.webservice
 
+import java.util.UUID
+
 import akka.actor.SupervisorStrategy.Stop
 import akka.actor.{OneForOneStrategy, _}
 import cromwell.webservice.PerRequest._
@@ -115,5 +117,5 @@ object PerRequestCreator {
     This is yucky. For lack of a better idea on how to name the individual endpoint actors I've shamelessly stolen
     what Agora is doing. I believe the Monsanto library will clean this up but we're not using it yet
    */
-  def endpointActorName = "Endpoint-" + java.lang.Thread.currentThread.getStackTrace()(1).getMethodName + System.nanoTime()
+  def endpointActorName = List("Endpoint", java.lang.Thread.currentThread.getStackTrace()(1).getMethodName, UUID.randomUUID()).mkString("-")
 }

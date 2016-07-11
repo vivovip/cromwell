@@ -719,4 +719,9 @@ class SlickDatabase(databaseConfig: Config) extends SqlDatabase {
     // So flatten the Option[Option[String]] to Option[String].
     runTransaction(action) map { _.flatten }
   }
+
+  def workflowExists(workflowUuid: String)(implicit ec: ExecutionContext): Future[Boolean] = {
+    val action = dataAccess.workflowExists(workflowUuid).result
+    runTransaction(action)
+  }
 }

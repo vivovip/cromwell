@@ -1,6 +1,7 @@
 package cromwell.engine.db
 
 import java.time.OffsetDateTime
+import java.util.UUID
 
 import akka.actor.ActorSystem
 import cromwell.core._
@@ -169,6 +170,10 @@ trait DataAccess extends AutoCloseable {
   def getWorkflowStatus(id: WorkflowId)
                        (implicit ec: ExecutionContext): Future[Option[WorkflowState]] = {
     self.getStatus(id.toString) map { _ map WorkflowState.fromString }
+  }
+
+  def workflowExists(uuid: UUID)(implicit ec: ExecutionContext): Future[Boolean] = {
+    self.workflowExists(uuid.toString)
   }
 
   def queryWorkflowSummaries(queryParameters: WorkflowQueryParameters)

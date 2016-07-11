@@ -1,11 +1,13 @@
 package cromwell.services
 
 import java.time.OffsetDateTime
+import java.util.UUID
 
-import akka.actor.{DeadLetterSuppression, ActorRef}
+import akka.actor.DeadLetterSuppression
 import cromwell.core.{WorkflowId, WorkflowState}
 import cromwell.services.ServiceRegistryActor.ServiceRegistryMessage
 import spray.http.Uri
+import spray.routing.{RequestContext, Route}
 import wdl4s.values._
 
 import scala.language.postfixOps
@@ -41,7 +43,11 @@ object MetadataServiceActor {
   case class WorkflowOutputs(workflowId: WorkflowId) extends MetadataServiceAction
   case class GetLogs(workflowId: WorkflowId) extends MetadataServiceAction
   case object RefreshSummary extends MetadataServiceAction
-  final case class HandleNotFound(workflowId: WorkflowId, sndr: ActorRef) extends MetadataServiceAction
+  final case class ValidateWorkflowIdAndExecute(uuid: UUID,
+                                                requestContext: RequestContext,
+                                                onRecognized: WorkflowId => Route,
+                                                onUnrecognized: UUID => Route,
+                                                onFailure: (UUID, Throwable) => Route) extends MetadataServiceAction
 
   /**
     * Responses
@@ -58,7 +64,6 @@ object MetadataServiceActor {
   case class MetadataServiceKeyLookupFailed(query: MetadataQuery, reason: Throwable) extends MetadataServiceFailure
 
   case class StatusLookupResponse(workflowId: WorkflowId, status: WorkflowState) extends MetadataServiceResponse
-  case class StatusLookupNotFound(workflowId: WorkflowId) extends MetadataServiceResponse
   case class StatusLookupFailed(workflowId: WorkflowId, reason: Throwable) extends MetadataServiceFailure
 
   final case class WorkflowQuerySuccess(uri: Uri, response: WorkflowQueryResponse, meta: Option[QueryMetadata]) extends MetadataServiceResponse
