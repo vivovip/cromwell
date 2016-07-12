@@ -14,7 +14,7 @@ import cromwell.services.{ServiceRegistryActor, ServiceRegistryClient}
   * For now there are only two entries into Cromwell - either using SingleWorkflowRunnerActor or CromwellServerActor.
   * This is intended to be mixed in with those entry points.
   */
-abstract class CromwellRootActor extends Actor with ServiceRegistryClient {
+ abstract class CromwellRootActor extends Actor with ServiceRegistryClient {
   private val logger = Logging(context.system, this)
 
   override val serviceRegistryActor = context.actorOf(ServiceRegistryActor.props(ConfigFactory.load()), "ServiceRegistryActor")

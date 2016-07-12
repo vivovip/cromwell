@@ -3,7 +3,7 @@ package cromwell.engine.workflow
 import akka.actor.FSM.{CurrentState, SubscribeTransitionCallBack, Transition}
 import akka.actor._
 import akka.event.Logging
-import akka.routing.FromConfig
+import akka.routing.{FromConfig, RoundRobinPool}
 import com.typesafe.config.{Config, ConfigFactory}
 import cromwell.core.WorkflowId
 import cromwell.engine._
@@ -24,6 +24,7 @@ object WorkflowManagerActor {
   val DefaultMaxWorkflowsToRun = 5000
   val DefaultMaxWorkflowsToLaunch = 50
   val DefaultNewWorkflowPollRate = 20
+  val DefaultNumberOfWorkflowLogCopyWorkers = 10
 
   case class WorkflowIdToActorRef(workflowId: WorkflowId, workflowActor: ActorRef)
   class WorkflowNotFoundException(s: String) extends Exception(s)
@@ -84,6 +85,7 @@ class WorkflowManagerActor(config: Config, val workflowStore: ActorRef, override
   private val maxWorkflowsRunning = config.getConfig("system").getIntOr("max-concurrent-workflows", default=DefaultMaxWorkflowsToRun)
   private val maxWorkflowsToLaunch = config.getConfig("system").getIntOr("max-workflow-launch-count", default=DefaultMaxWorkflowsToLaunch)
   private val newWorkflowPollRate = config.getConfig("system").getIntOr("new-workflow-poll-rate", default=DefaultNewWorkflowPollRate).seconds
+  private val numberOfWorkflowLogCopyWorkers = config.getConfig("system").getIntOr("number-of-workflow-log-copy-workers", default=DefaultNumberOfWorkflowLogCopyWorkers)
 
   private val restartDelay: FiniteDuration = 200 milliseconds
   private val logger = Logging(context.system, this)
@@ -94,7 +96,9 @@ class WorkflowManagerActor(config: Config, val workflowStore: ActorRef, override
   private val workflowLogCopyRouter: ActorRef = {
     val copyWorkflowLogsProps = CopyWorkflowLogsActor.props(serviceRegistryActor).withDispatcher("akka.dispatchers.slow-actor-dispatcher")
     // FIXME: This will silently die if it doesn't initialize
-    context.actorOf(FromConfig.withSupervisorStrategy(CopyWorkflowLogsActor.strategy).props(copyWorkflowLogsProps), "WorkflowLogCopyRouter")
+    context.actorOf(RoundRobinPool(numberOfWorkflowLogCopyWorkers)
+      .withSupervisorStrategy(CopyWorkflowLogsActor.strategy)
+      .props(copyWorkflowLogsProps), "WorkflowLogCopyRouter")
   }
 
   override def preStart() {
