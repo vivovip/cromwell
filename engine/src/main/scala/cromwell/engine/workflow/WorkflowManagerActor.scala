@@ -93,6 +93,7 @@ class WorkflowManagerActor(config: Config, val workflowStore: ActorRef, override
 
   private val workflowLogCopyRouter: ActorRef = {
     val copyWorkflowLogsProps = CopyWorkflowLogsActor.props(serviceRegistryActor).withDispatcher("akka.dispatchers.slow-actor-dispatcher")
+    // FIXME: This will silently die if it doesn't initialize
     context.actorOf(FromConfig.withSupervisorStrategy(CopyWorkflowLogsActor.strategy).props(copyWorkflowLogsProps), "WorkflowLogCopyRouter")
   }
 

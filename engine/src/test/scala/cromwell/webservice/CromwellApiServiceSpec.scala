@@ -13,7 +13,7 @@ import cromwell.database.obj.WorkflowMetadataKeys
 import cromwell.engine.workflow.WorkflowDescriptorBuilder
 import cromwell.engine.workflow.WorkflowManagerActor.{AbortWorkflowCommand, WorkflowNotFoundException}
 import cromwell.engine.workflow.WorkflowStoreActor.{SubmitWorkflow, BatchSubmitWorkflows, WorkflowSubmittedToStore, WorkflowsBatchSubmittedToStore}
-import cromwell.server.WorkflowManagerSystem
+import cromwell.server.CromwellSystem
 import cromwell.services.MetadataServiceActor._
 import cromwell.services.MetadataSummaryRefreshActor.{MetadataSummarySuccess, SummarizeMetadata}
 import cromwell.services._
@@ -69,7 +69,7 @@ class CromwellApiServiceSpec extends FlatSpec with CromwellApiService with Scala
   import spray.httpx.SprayJsonSupport._
 
   // BUG: Must be called once to statically initialize the backends, otherwise this Spec won't run if run alone.
-  new WorkflowManagerSystem {}
+  new CromwellSystem {}
 
   import akka.testkit._
 
@@ -82,7 +82,7 @@ class CromwellApiServiceSpec extends FlatSpec with CromwellApiService with Scala
   val summaryActor = system.actorOf(MetadataSummaryRefreshActor.props(None), "metadata-summary-actor")
   override val serviceRegistryActor = system.actorOf(Props.empty) // Dummy SRA
 
-  override val workflowManager = actorRefFactory.actorOf(Props(new MockWorkflowManagerActor() with WorkflowDescriptorBuilder {
+  override val workflowManagerActor = actorRefFactory.actorOf(Props(new MockWorkflowManagerActor() with WorkflowDescriptorBuilder {
     override implicit  val actorSystem = context.system
   }))
 
@@ -116,7 +116,7 @@ class CromwellApiServiceSpec extends FlatSpec with CromwellApiService with Scala
   behavior of "REST API /status endpoint"
 
   it should "return 500 errors as Json" in {
-    val apiActor = TestActorRef(new CromwellApiServiceActor(workflowManager, workflowStoreActor, serviceRegistryActor, ConfigFactory.empty()))
+    val apiActor = TestActorRef(new CromwellServerActor(workflowManagerActor, workflowStoreActor, serviceRegistryActor, ConfigFactory.empty()))
     val probe = TestProbe()
     probe.send(apiActor, Timedout(mock[HttpRequest]))
     probe.expectMsgPF(defaultTimeout.duration) {
