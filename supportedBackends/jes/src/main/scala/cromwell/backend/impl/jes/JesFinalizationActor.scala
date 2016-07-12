@@ -4,7 +4,6 @@ import java.nio.file.Path
 
 import akka.actor.Props
 import better.files._
-import cromwell.backend.impl.jes.io._
 import cromwell.backend.{BackendJobDescriptorKey, BackendWorkflowDescriptor, BackendWorkflowFinalizationActor}
 import cromwell.core.{ExecutionStore, OutputStore, PathCopier}
 import wdl4s.Call
@@ -15,7 +14,6 @@ object JesFinalizationActor {
   def props(workflowDescriptor: BackendWorkflowDescriptor, calls: Seq[Call], jesConfiguration: JesConfiguration,
             executionStore: ExecutionStore, outputStore: OutputStore, initializationData: JesBackendInitializationData) = {
     Props(new JesFinalizationActor(workflowDescriptor, calls, jesConfiguration, executionStore, outputStore, initializationData))
-      .withDispatcher("akka.dispatchers.slow-actor-dispatcher")
   }
 }
 
@@ -28,6 +26,8 @@ class JesFinalizationActor (override val workflowDescriptor: BackendWorkflowDesc
   override val configurationDescriptor = jesConfiguration.configurationDescriptor
 
   private val workflowPaths = new JesWorkflowPaths(workflowDescriptor, jesConfiguration, initializationData.backendFilesystem)
+
+  private val iOExecutionContext = context.system.dispatchers.lookup("akka.dispatchers.io-dispatcher")
 
   override def afterAll(): Future[Unit] = {
     for {
@@ -49,13 +49,13 @@ class JesFinalizationActor (override val workflowDescriptor: BackendWorkflowDesc
     import cromwell.core.WorkflowOptions._
     /*
     NOTE: Only using one thread pool slot here to upload all the files for all the calls.
-    Using the slow-actor-dispatcher defined in application.conf because this might take a while.
+    Using the io-dispatcher defined in application.conf because this might take a while.
     One could also use Future.sequence to flood the dispatcher, or even create a separate jes final call specific thread
     pool for parallel uploads.
 
     Measure and optimize as necessary. Will likely need retry code at some level as well.
      */
-    Future(workflowDescriptor.getWorkflowOption(FinalCallLogsDir) foreach copyCallOutputs)(context.system.dispatcher)
+    Future(workflowDescriptor.getWorkflowOption(FinalCallLogsDir) foreach copyCallOutputs)(iOExecutionContext)
   }
 
   private def copyCallOutputs(callLogsDir: String): Unit = {

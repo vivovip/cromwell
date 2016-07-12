@@ -23,7 +23,7 @@ object JesInitializationActor {
     JesRuntimeAttributes.PreemptibleKey, JesRuntimeAttributes.BootDiskSizeKey, JesRuntimeAttributes.DisksKey)
 
   def props(workflowDescriptor: BackendWorkflowDescriptor, calls: Seq[Call], jesConfiguration: JesConfiguration): Props =
-    Props(new JesInitializationActor(workflowDescriptor, calls, jesConfiguration)).withDispatcher("akka.dispatchers.slow-actor-dispatcher")
+    Props(new JesInitializationActor(workflowDescriptor, calls, jesConfiguration))
 
   implicit class GoogleAuthWorkflowOptions(val workflowOptions: WorkflowOptions) extends AnyVal {
     def toGoogleAuthOptions: GoogleAuthMode.GoogleAuthOptions = new GoogleAuthOptions {
@@ -59,7 +59,7 @@ class JesInitializationActor(override val workflowDescriptor: BackendWorkflowDes
     } yield GcsLocalizing(clientSecrets, token)
   }
 
-  //TODO PBE: Workflow options may need to be validated for JES.
+  private val iOExecutionContext = context.system.dispatchers.lookup("akka.dispatchers.io-dispatcher")
 
   /**
     * A call which happens before anything else runs
@@ -75,7 +75,7 @@ class JesInitializationActor(override val workflowDescriptor: BackendWorkflowDes
     def buildGcsFileSystem: Future[GcsFileSystem] = Future {
       val storage = jesConfiguration.jesAttributes.gcsFilesystemAuth.buildStorage(
         workflowDescriptor.workflowOptions.toGoogleAuthOptions, jesConfiguration.googleConfig)
-      GcsFileSystem(GcsFileSystemProvider(storage))
+      GcsFileSystem(GcsFileSystemProvider(storage)(iOExecutionContext))
     }
 
     for {
